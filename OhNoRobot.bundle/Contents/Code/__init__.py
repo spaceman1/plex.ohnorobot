@@ -14,9 +14,16 @@ ARCHIVE_HEAD = 'http://www.ohnorobot.com/archive.pl?comic='
 DAY = 86400
 CACHE_TIME = DAY
 
+S_TITLE = 0
+S_XPATH = 1
+S_ENCODING = 2
+
+knownSeries = dict()
+
 ####################################################################################################
 
 def Start():
+  global knownSeries
   Plugin.AddPrefixHandler(PLUGIN_PREFIX, MainMenu, L('Oh No Robot'), 'icon-default.png', 'art-default.png')
   
   Plugin.AddViewGroup('List', viewMode='List', mediaType='items')
@@ -28,10 +35,15 @@ def Start():
   
   HTTP.SetCacheTime(CACHE_TIME)
   
+  if not Data.Exists('series'):
+    Data.SaveObject('series', knownSeries)
+  else:
+    knownSeries = Data.LoadObject('series')
+  
 ####################################################################################################
 
 def CreateDict():
-  Dict.Set('series', dict())
+  Dict.Set('pages', dict())
   
 def UpdateCache():
   return
@@ -50,15 +62,15 @@ def MainMenu():
   return dir
   
 def viewSeries(sender):
+  global knownSeries
   dir = MediaContainer()
-  knownSeries = Dict.Get('series')
   for series in knownSeries.iterkeys():
-    dir.Append(Function(DirectoryItem(IssuesMenu, title=series), key=knownSeries[series][0]))
+    dir.Append(Function(DirectoryItem(IssuesMenu, title=series), key=knownSeries[series][S_TITLE]))
   return dir
   
 def addSeries(sender):
+  global knownSeries
   dir = MediaContainer(noCache=1)
-  knownSeries = Dict.Get('series')
   allSeries = getSeries(MediaContainer())
   for series in allSeries:
     seriesName = series.name
@@ -83,8 +95,9 @@ def getSeries(dir):
 ####################################################################################################
 
 def IssuesMenu(sender, key):
+  global knownSeries
   pages = getIssues(MediaContainer(viewGroup='Comic'), key)
-  seriesXPath = Dict.Get('series')[sender.itemTitle][1]
+  seriesXPath = knownSeries[sender.itemTitle][S_XPATH]
   for page in pages:
     base = page._Function__kwargs['key']
     thumb = XML.ElementFromURL(base, True).xpath(seriesXPath)[0].get('src')
@@ -96,7 +109,7 @@ def IssuesMenu(sender, key):
   
 def getIssues(dir, key):
   archivePageLinks = GetXML(ARCHIVE_HEAD + key, True, encoding='iso-8859-1').xpath('//body/p[4]/a')
-  Log(archivePageLinks)
+  Log('Pages: ' + str(len(archivePageLinks)))
   archivePages = [ARCHIVE_HEAD + key, ]
   for link in archivePageLinks[0:-1]:
     archivePages.append(PROVIDER_BASE + link.get('href'))
@@ -113,27 +126,27 @@ def noMenu(sender, key):
   pass
   
   
-def uniqueImages(page1, page2):
+def uniqueImages(page1, page2, encoding):
   images2 = list()
   uniques = list()
-  for image in GetXML(page2, True).xpath('//img'):
+  for image in GetXML(page2, True, encoding=encoding).xpath('//img'):
     images2.append(image.get('src'))
-  for image in GetXML(page1, True).xpath('//img'):
+  for image in GetXML(page1, True, encoding=encoding).xpath('//img'):
     src = image.get('src')
     if src not in images2:
       uniques.append(src)
   return uniques
   
-def getXPath(sender, key, page, seriesName, seriesID):
-  image = GetXML(page, True).xpath('//img[@src="' + key + '"]')[0]
+def getXPath(sender, key, page, seriesName, seriesID, encoding):
+  global knownSeries
+  image = GetXML(page, True, encoding=encoding).xpath('//img[@src="' + key + '"]')[0]
   Log('image source:' + key)
-  xpath = getXPath2(image,'')
+  xpath = getXPath2(image, '')
   Log('image path:' + xpath)
   Log(GetXML(page, True).xpath(xpath)[0].get('src'))
   
-  allSeries = Dict.Get('series')
-  allSeries[seriesName] = [seriesID, xpath]
-  Dict.Set('series', allSeries)
+  knownSeries[seriesName] = [seriesID, xpath, encoding]
+  Data.SaveObject('series', knownSeries)
   return
   
 def getXPath2(key, childPath):
@@ -161,8 +174,11 @@ def issuePages(sender, key):
   page2 = allComics[-2]._Function__kwargs['key']
   seriesName = sender.itemTitle
   dir = MediaContainer(title2=seriesName, nocache=1)
-  for image in uniqueImages(page1, page2):
-    dir.Append(Function(DirectoryItem(getXPath, thumb=image, title=image), key=image, page=page1, seriesName=seriesName, seriesID=key))
+  encoding = GetEncoding(page1)
+  Log('Encoding: ' + encoding)
+  for image in uniqueImages(page1, page2, encoding):
+    imageAbsolute = urlparse.urljoin(page1, image)
+    dir.Append(Function(DirectoryItem(getXPath, thumb=imageAbsolute, title=imageAbsolute), key=image, page=page1, seriesName=seriesName, seriesID=key, encoding=encoding))
   return dir
   
   archivedPages = Dict.Get('pages')
@@ -190,7 +206,9 @@ def grabPage(page):
 
 ####################################################################################################
   
-def GetXML(theUrl, use_html_parser=False, encoding="utf8"):
+def GetXML(theUrl, use_html_parser=True, encoding="utf8"):
   return XML.ElementFromString(HTTP.Request(url=theUrl, cacheTime=CACHE_TIME, encoding=encoding), use_html_parser)
-
+  
+def GetEncoding(url):
+  return GetXML('http://validator.w3.org/check?uri=' + String.Quote(url) + '&charset=%28detect+automatically%29&doctype=Inline&group=0').xpath('//table[@class="header"]/tr[3]/td[1]')[0].text
 ####################################################################################################
