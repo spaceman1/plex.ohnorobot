@@ -39,6 +39,11 @@ def Start():
     Data.SaveObject('series', knownSeries)
   else:
     knownSeries = Data.LoadObject('series')
+#    goodSeries = dict()
+#    for theSeries in knownSeries.iterkeys():
+#      if len(knownSeries[theSeries]) == 3:
+#        goodSeries[theSeries] = knownSeries[theSeries]
+#    Data.SaveObject('series', goodSeries)
   
 ####################################################################################################
 
@@ -47,6 +52,12 @@ def CreateDict():
   
 def UpdateCache():
   return
+  for comic in addSeries(''):
+    try:
+      Log(comic.name)
+      getIssues(MediaContainer(), comic._Function__kwargs['key'])
+    except:
+      pass
 
 ####################################################################################################
 
